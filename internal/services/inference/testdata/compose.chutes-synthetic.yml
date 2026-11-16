@@ -1,0 +1,80 @@
+# SYNTHETIC TEST FIXTURE - NOT A DEPLOYMENT FILE.
+# Rendered only by test_compose_chutes_synthetic.py with `docker compose config`
+# (never up/pull/build) over the repository docker-compose.yml, to check the
+# supported Chutes shape: a separate generation-only sidecar behind its own
+# model proxy, embedding/rerank left on the existing CPU service. Every path,
+# identity and model below comes from SYNTHETIC_* variables the test supplies;
+# no credential value is ever configured, only a file path.
+services:
+  miner:
+    environment:
+      CHUTES_BACKEND_NAME: chutes
+      GENERATION_BACKEND_TIMEOUT_SECONDS: ${GENERATION_BACKEND_TIMEOUT_SECONDS:-85}
+      GENERATION_SIDECAR_DEADLINE_MARGIN_MS: ${GENERATION_SIDECAR_DEADLINE_MARGIN_MS:-2000}
+
+  # The legacy adapter keeps embedding/rerank only: no generic generation backend.
+  miner-inference-service:
+    environment:
+      GEN_OPENAI_URL: ""
+  cpu-model-proxy:
+    environment:
+      CAPABILITIES: embedding,rerank
+      MODELS: ${MINER_EMBED_MODEL:-BAAI/bge-small-en-v1.5},${MINER_RERANK_MODEL:-cross-encoder/ms-marco-MiniLM-L-2-v2}
+
+  chutes-generation:
+    build:
+      context: .
+      dockerfile: Dockerfile.inference-service
+    user: "1001:1001"
+    read_only: true
+    # cap_drop, security_opt and the /tmp tmpfs come from the root chutes profile; list keys
+    # are merged across files, so repeating them here makes some Compose versions reject the
+    # duplicate items.
+    restart: unless-stopped
+    environment:
+      LISTEN_ADDR: ":19201"
+      GENERATION_CONNECTOR: chutes
+      GEN_CHUTES_ENABLED: ${SYNTHETIC_CHUTES_ENABLED:-false}
+      CHUTES_MODEL: ${SYNTHETIC_CHUTES_MODEL:?SYNTHETIC_CHUTES_MODEL is required}
+      GEN_OPENAI_TIMEOUT_SECONDS: ${GEN_OPENAI_TIMEOUT_SECONDS:-85}
+      CHUTES_API_KEY_FILE: /run/synthetic-chutes/api-key
+      CHUTES_LEDGER_PATH: /state/chutes-ledger.sqlite
+      CHUTES_LEDGER_ID: ${SYNTHETIC_CHUTES_LEDGER_ID:?SYNTHETIC_CHUTES_LEDGER_ID is required (once-initialized ledger identity)}
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - type: bind
+        source: ${SYNTHETIC_CHUTES_SECRET_DIR:?SYNTHETIC_CHUTES_SECRET_DIR is required}
+        target: /run/synthetic-chutes
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${SYNTHETIC_CHUTES_STATE_DIR:?SYNTHETIC_CHUTES_STATE_DIR is required}
+        target: /state
+        bind:
+          create_host_path: false
+
+  chutes-genproxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        TARGET: ./cmd/model-proxy
+    depends_on:
+      miner:
+        condition: service_started
+      chutes-generation:
+        condition: service_started
+    restart: unless-stopped
+    environment:
+      LISTEN_ADDR: ":9202"
+      SERVICE_NAME: chutes
+      SERVICE_PUBLIC_URL: http://chutes-genproxy:9202
+      UPSTREAM_URL: http://chutes-generation:19201
+      UPSTREAM_HEALTH_PATH: /health/generation
+      MINER_API_URL: ${SIDECAR_MINER_API_URL:-http://miner:8001}
+      INTERNAL_API_KEY: ${MINER_INTERNAL_API_KEY:?MINER_INTERNAL_API_KEY is required}
+      CAPABILITIES: generate
+      MODELS: ${SYNTHETIC_CHUTES_MODEL:?SYNTHETIC_CHUTES_MODEL is required}
+      METADATA: '{"generation_connector":"chutes"}'
+      REGISTER_ON_START: "true"

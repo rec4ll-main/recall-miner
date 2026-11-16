@@ -1,0 +1,81 @@
+[
+ {
+  "body": {
+   "abstained": false,
+   "answer": "Water boils at 100 degrees Celsius at sea level.",
+   "citations": [
+    {
+     "context_id": "public-fact-1"
+    }
+   ],
+   "grounding": {
+    "support": 1.0
+   },
+   "model": "Qwen/Qwen3.8-27B-TEE",
+   "usage": {
+    "completion_tokens": 3,
+    "prompt_tokens": 2,
+    "total_tokens": 5
+   }
+  },
+  "case": "grounded_fact",
+  "status": 200
+ },
+ {
+  "body": {
+   "abstained": true,
+   "answer": "I cannot answer from the provided context.",
+   "citations": [],
+   "grounding": {
+    "abstain_reason": "refusal"
+   },
+   "model": "Qwen/Qwen3.8-27B-TEE",
+   "usage": {
+    "completion_tokens": 3,
+    "prompt_tokens": 2,
+    "total_tokens": 5
+   }
+  },
+  "case": "no_context_abstention",
+  "status": 200
+ },
+ {
+  "body": {
+   "detail": "hosted rate limited",
+   "error": "generation_failed"
+  },
+  "case": "provider_rate_limited",
+  "status": 500
+ },
+ {
+  "body": {
+   "error": "hosted_admission_blocked"
+  },
+  "case": "durable_hold",
+  "status": 409
+ },
+ {
+  "body": {
+   "detail": "hosted generation canceled; remote completion unknown",
+   "error": "generation_aborted"
+  },
+  "case": "canceled",
+  "status": 503
+ },
+ {
+  "body": {
+   "detail": "hosted generation deadline exceeded; remote completion unknown",
+   "error": "generation_backend_timeout"
+  },
+  "case": "deadline",
+  "status": 504
+ },
+ {
+  "body": {
+   "detail": "deadline budget spent before dispatch; not sent",
+   "error": "generation_deadline_exhausted"
+  },
+  "case": "budget_exhausted_unsent",
+  "status": 504
+ }
+]

@@ -1,0 +1,28 @@
+FROM python:3.12-slim@sha256:a6e34c598f2467ed0e9a8d349809fcd8b5c603269512df273a0bb1784edc11b1
+
+ENV PIP_NO_CACHE_DIR=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+
+# Exact transitive versions from the reviewed image, with artifact hashes.
+COPY --chmod=0644 inference/requirements.lock ./requirements.lock
+RUN pip install --no-cache-dir --require-hashes --only-binary=:all: --no-deps --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.lock
+
+# service.py imports concurrency at module load — both must be present.
+COPY --chmod=0644 internal/services/inference/concurrency.py ./concurrency.py
+COPY --chmod=0644 internal/services/inference/hosted_provider.py ./hosted_provider.py
+COPY --chmod=0644 internal/services/inference/hosted_accounting.py ./hosted_accounting.py
+COPY --chmod=0644 internal/services/inference/provider_capability.py ./provider_capability.py
+COPY --chmod=0644 internal/services/inference/controlled_chutes.py internal/services/inference/computed_probe.py internal/services/inference/probe_schema.json ./
+COPY --chmod=0644 internal/services/inference/grounding.py ./grounding.py
+COPY --chmod=0644 internal/services/inference/chunked_framing.py ./chunked_framing.py
+COPY --chmod=0644 internal/services/inference/generation_diagnostics.py ./generation_diagnostics.py
+COPY --chmod=0644 internal/services/inference/service.py ./service.py
+
+# Ledger mount point for the Chutes sidecar (UID 1001). A new named volume mounted here
+# copies this owner and mode, so it needs no host preparation.
+RUN install -d -m 0750 -o 1001 -g 1001 /state
+
+EXPOSE 9200
+CMD ["python", "service.py"]

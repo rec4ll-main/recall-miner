@@ -1,0 +1,198 @@
+[
+  {
+    "name": "original_age_only",
+    "query": "How much does Bluefin Brewery's flagship stout cost?",
+    "answer": "Bluefin Brewery's flagship stout is aged for 19 months in cedar barrels.",
+    "contexts": [
+      {
+        "id": "c1",
+        "text": "Bluefin Brewery's flagship stout is aged for 19 months in cedar barrels."
+      }
+    ],
+    "expect_abstained": true
+  },
+  {
+    "name": "curly_apostrophe",
+    "query": "How much does Bluefin Brewery’s flagship stout cost?",
+    "answer": "Bluefin Brewery's flagship stout is aged for 19 months in cedar barrels.",
+    "contexts": [
+      {
+        "id": "c1",
+        "text": "Bluefin Brewery's flagship stout is aged for 19 months in cedar barrels."
+      }
+    ],
+    "expect_abstained": true
+  },
+  {
+    "name": "cost_word_without_value",
+    "query": "How much does Bluefin Brewery's flagship stout cost?",
+    "answer": "Bluefin Brewery's flagship stout is aged for 19 months in cedar barrels.",
+    "contexts": [
+      {
+        "id": "c1",
+        "text": "Bluefin Brewery's flagship stout is aged for 19 months in cedar barrels. Its cost is not listed."
+      }
+    ],
+    "expect_abstained": true
+  },
+  {
+    "name": "price_present_but_answer_omits_it",
+    "query": "How much does Bluefin Brewery's flagship stout cost?",
+    "answer": "Bluefin Brewery's flagship stout is aged for 19 months in cedar barrels.",
+    "contexts": [
+      {
+        "id": "c1",
+        "text": "Bluefin Brewery's flagship stout is aged for 19 months in cedar barrels. Bluefin Brewery's flagship stout costs $14."
+      }
+    ],
+    "expect_abstained": true
+  },
+  {
+    "name": "uncited_price_cannot_rescue_age_answer",
+    "query": "How much does Bluefin Brewery's flagship stout cost?",
+    "answer": "Bluefin Brewery's flagship stout is aged for 19 months in cedar barrels.",
+    "contexts": [
+      {
+        "id": "c1",
+        "text": "Bluefin Brewery's flagship stout is aged for 19 months in cedar barrels."
+      },
+      {
+        "id": "c2",
+        "text": "Bluefin Brewery's flagship stout costs $14."
+      }
+    ],
+    "expect_abstained": true
+  },
+  {
+    "name": "price_symbol",
+    "query": "How much does Bluefin Brewery's flagship stout cost?",
+    "answer": "Bluefin Brewery's flagship stout costs $14.",
+    "contexts": [
+      {
+        "id": "c1",
+        "text": "Bluefin Brewery's flagship stout costs $14."
+      }
+    ],
+    "expect_abstained": false
+  },
+  {
+    "name": "price_decimal",
+    "query": "How much does Bluefin Brewery's flagship stout cost?",
+    "answer": "Bluefin Brewery's flagship stout costs $14.50.",
+    "contexts": [
+      {
+        "id": "c1",
+        "text": "Bluefin Brewery's flagship stout costs $14.50."
+      }
+    ],
+    "expect_abstained": false
+  },
+  {
+    "name": "price_currency_name",
+    "query": "How much does Bluefin Brewery's flagship stout cost?",
+    "answer": "Bluefin Brewery's flagship stout costs 14 dollars.",
+    "contexts": [
+      {
+        "id": "c1",
+        "text": "Bluefin Brewery's flagship stout costs 14 dollars."
+      }
+    ],
+    "expect_abstained": false
+  },
+  {
+    "name": "price_paraphrase",
+    "query": "What does Bluefin Brewery's flagship stout retail for?",
+    "answer": "Bluefin Brewery's flagship stout costs $14.",
+    "contexts": [
+      {
+        "id": "c1",
+        "text": "Bluefin Brewery's flagship stout costs $14."
+      }
+    ],
+    "expect_abstained": false
+  },
+  {
+    "name": "price_euro",
+    "query": "What is the price of Bluefin Brewery's flagship stout?",
+    "answer": "Bluefin Brewery's flagship stout is €14.",
+    "contexts": [
+      {
+        "id": "c1",
+        "text": "Bluefin Brewery's flagship stout is €14."
+      }
+    ],
+    "expect_abstained": false
+  },
+  {
+    "name": "zero_price",
+    "query": "How much does Bluefin Brewery's flagship stout cost?",
+    "answer": "Bluefin Brewery's flagship stout costs $0.",
+    "contexts": [
+      {
+        "id": "c1",
+        "text": "Bluefin Brewery's flagship stout costs $0."
+      }
+    ],
+    "expect_abstained": false
+  },
+  {
+    "name": "age_still_answerable",
+    "query": "How long is Bluefin Brewery's flagship stout aged?",
+    "answer": "Bluefin Brewery's flagship stout is aged for 19 months in cedar barrels.",
+    "contexts": [
+      {
+        "id": "c1",
+        "text": "Bluefin Brewery's flagship stout is aged for 19 months in cedar barrels."
+      }
+    ],
+    "expect_abstained": false
+  },
+  {
+    "name": "how_much_non_money",
+    "query": "How much water does the tank hold?",
+    "answer": "The tank holds 19 litres of water.",
+    "contexts": [
+      {
+        "id": "c1",
+        "text": "The tank holds 19 litres of water."
+      }
+    ],
+    "expect_abstained": false
+  },
+  {
+    "name": "word_price",
+    "query": "How much does Bluefin Brewery's flagship stout cost?",
+    "answer": "Bluefin Brewery's flagship stout costs fourteen dollars.",
+    "contexts": [
+      {
+        "id": "c1",
+        "text": "Bluefin Brewery's flagship stout costs fourteen dollars."
+      }
+    ],
+    "expect_abstained": false
+  },
+  {
+    "name": "free_price",
+    "query": "How much does Bluefin Brewery's flagship stout cost?",
+    "answer": "Bluefin Brewery's flagship stout is free.",
+    "contexts": [
+      {
+        "id": "c1",
+        "text": "Bluefin Brewery's flagship stout is free."
+      }
+    ],
+    "expect_abstained": false
+  },
+  {
+    "name": "no_charge_price",
+    "query": "How much does Bluefin Brewery's flagship stout cost?",
+    "answer": "Bluefin Brewery's flagship stout is available at no charge.",
+    "contexts": [
+      {
+        "id": "c1",
+        "text": "Bluefin Brewery's flagship stout is available at no charge."
+      }
+    ],
+    "expect_abstained": false
+  }
+]

@@ -1,0 +1,21 @@
+# Supported override: GPU embedding miner.
+# Advertises T1 db (Qdrant + miner-db-service), T2 embedding from vLLM on the GPU
+# through the authenticated model-proxy, and T3 rerank from the CPU inference service.
+# Generation stays off. The bundled inference image is CPU-only PyTorch, so
+# rerank runs on CPU regardless of GPU presence.
+#
+# Use with the root file, always both:
+#   docker compose --env-file .env -f docker-compose.yml -f deploy/compose/gpu.yml <command>
+# Install guide: SETUP.md (it sets COMPOSE_FILE in .env so plain `docker compose` uses both).
+services:
+  vllm:
+    # The root file uses a moving tag. Require an operator-tested image, ideally
+    # pinned by digest (repository@sha256:...).
+    image: ${VLLM_IMAGE:?Set VLLM_IMAGE to the tested vLLM image, pinned by digest}
+  cpu-model-proxy:
+    environment:
+      # Embedding must come from the GPU proxy only. Healthy embedding backends
+      # are tried in name order, so a CPU proxy that also advertised embedding
+      # would be selected before the GPU proxy.
+      CAPABILITIES: rerank
+      MODELS: ${MINER_RERANK_MODEL:-cross-encoder/ms-marco-MiniLM-L-2-v2}

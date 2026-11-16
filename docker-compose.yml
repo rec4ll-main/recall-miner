@@ -1,0 +1,314 @@
+# Recall Miner Stack
+# Build contexts are "." (current directory = miner repo root).
+#
+# Usage:
+#   cp .env.example .env
+#   docker compose up -d --build
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.12.6
+    ulimits:
+      nofile:
+        soft: 65536
+        hard: 65536
+    volumes:
+      - qdrant-data:/qdrant/storage
+    restart: unless-stopped
+
+  vllm:
+    image: vllm/vllm-openai:latest
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    command:
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8000"
+      - --model
+      - ${VLLM_MODEL:-BAAI/bge-small-en-v1.5}
+      - --gpu-memory-utilization
+      - ${VLLM_GPU_MEMORY_UTILIZATION:-0.12}
+      - --max-model-len
+      - ${VLLM_MAX_MODEL_LEN:-512}
+    environment:
+      NVIDIA_VISIBLE_DEVICES: ${NVIDIA_VISIBLE_DEVICES:-all}
+      NVIDIA_DRIVER_CAPABILITIES: ${NVIDIA_DRIVER_CAPABILITIES:-compute,utility}
+      HF_TOKEN: ${HF_TOKEN:-}
+    # vLLM stays on the compose network. model-proxy is the authenticated path.
+    # Do not publish this port on the host. The default compose file does not.
+    volumes:
+      - vllm-cache:/root/.cache/huggingface
+    restart: unless-stopped
+
+  miner:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        TARGET: ./cmd/recall-miner
+        GIT_COMMIT: ${GIT_COMMIT:-dev}
+    environment:
+      # List form so API_SIGNING_HOTKEY_SS58 (renamed from
+      # APPLICATION_PROBER_HOTKEY_SS58) is omitted from the container when unset
+      # on the host/.env; startup then fails unless VALIDATOR_ALLOWLIST_DEV_EMPTY=true.
+      # An explicitly empty value is still forwarded and fails closed at startup.
+      # VALIDATOR_HOTKEY_SS58 was removed and is deliberately not forwarded.
+      - LISTEN_ADDR=:8001
+      - ENVIRONMENT=${ENVIRONMENT:-production}
+      # Recall application API base (default https://rec4ll.com/api).
+      - RECALL_API_URL=${RECALL_API_URL:-}
+      - API_SIGNING_HOTKEY_SS58
+      - MINER_EMBEDDING_MODELS=${MINER_EMBEDDING_MODELS:-}
+      - MINER_API_URL=${MINER_API_URL:-http://miner:8001}
+      - INTERNAL_API_KEY=${MINER_INTERNAL_API_KEY:?MINER_INTERNAL_API_KEY is required}
+      - METRICS_STORAGE=${MINER_METRICS_STORAGE:-}
+      # Prefer MINER_HOTKEY_URI (.env.example); HOTKEY_URI also accepted for SETUP examples.
+      - HOTKEY_URI=${MINER_HOTKEY_URI:-${HOTKEY_URI:-//RecallMiner//local}}
+      - SS58_FORMAT=${SS58_FORMAT:-42}
+      - NETUID=${NETUID:-31}
+      - REGISTER_ON_START=${REGISTER_ON_START:-true}
+      - MINER_EXTERNAL_IP=${MINER_EXTERNAL_IP:-}
+      - GENERATION_ENABLED=${GENERATION_ENABLED:-true}
+      - GENERATION_BACKEND_TIMEOUT_SECONDS=${GENERATION_BACKEND_TIMEOUT_SECONDS:-85}
+      # Must equal the chutes-genproxy MODELS (profile: chutes); omitted when unset.
+      - CHUTES_MODEL
+      - HEARTBEAT_INTERVAL_SECONDS=${MINER_HEARTBEAT_INTERVAL_SECONDS:-30}
+      - HTTP_TIMEOUT_SECONDS=${MINER_HTTP_TIMEOUT_SECONDS:-120}
+      - TLS_ENABLED=${TLS_ENABLED:-false}
+      # Overload controls (docs/ENVIRONMENT.md). 0 disables a control.
+      - RATE_LIMIT_AUTH_FAILURES_PER_MIN=${RATE_LIMIT_AUTH_FAILURES_PER_MIN:-60}
+      - RATE_LIMIT_VALIDATOR_PER_MIN=${RATE_LIMIT_VALIDATOR_PER_MIN:-3000}
+      - RATE_LIMIT_DB_CREATE_PER_MIN=${RATE_LIMIT_DB_CREATE_PER_MIN:-20}
+      - RATE_LIMIT_AUTH_FAILURE_TABLE_SIZE=${RATE_LIMIT_AUTH_FAILURE_TABLE_SIZE:-10000}
+      - RATE_LIMIT_AUTH_FAILURE_OVERFLOW_PER_MIN=${RATE_LIMIT_AUTH_FAILURE_OVERFLOW_PER_MIN:-600}
+      - RATE_LIMIT_TRUSTED_PROXIES=${RATE_LIMIT_TRUSTED_PROXIES:-}
+      - EMBED_MAX_INFLIGHT=${EMBED_MAX_INFLIGHT:-64}
+      - RERANK_MAX_INFLIGHT=${RERANK_MAX_INFLIGHT:-32}
+      - QUERY_MAX_INFLIGHT=${QUERY_MAX_INFLIGHT:-128}
+      - STORE_MAX_INFLIGHT=${STORE_MAX_INFLIGHT:-128}
+      - GENERATE_MAX_INFLIGHT=${GENERATE_MAX_INFLIGHT:-8}
+      - TLS_CERT_FILE=${TLS_CERT_FILE:-/var/lib/recall-miner/certs/miner-cert.pem}
+      - TLS_KEY_FILE=${TLS_KEY_FILE:-/var/lib/recall-miner/certs/miner-key.pem}
+      - TLS_AUTO_GENERATE=${TLS_AUTO_GENERATE:-true}
+      # Include compose service DNS so sidecars can verify https://miner:8001.
+      - TLS_SAN_HOSTS=${TLS_SAN_HOSTS:-miner}
+    ports:
+      - "${MINER_HOST_PORT:-6001}:8001"
+    volumes:
+      - miner-data:/var/lib/recall-miner
+      - miner-certs:/var/lib/recall-miner/certs
+    restart: unless-stopped
+
+  miner-db-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        TARGET: ./cmd/db-service
+    depends_on:
+      miner:
+        condition: service_started
+      qdrant:
+        condition: service_started
+    environment:
+      LISTEN_ADDR: ":9000"
+      SERVICE_NAME: db
+      SERVICE_PUBLIC_URL: http://miner-db-service:9000
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      DB_ENGINE: ${DB_ENGINE:-qdrant}
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      STORAGE_PREFIX: ${STORAGE_PREFIX:-}
+      MINER_API_URL: ${SIDECAR_MINER_API_URL:-http://miner:8001}
+      MINER_TLS_CA_FILE: ${MINER_TLS_CA_FILE:-}
+      INTERNAL_API_KEY: ${MINER_INTERNAL_API_KEY:?MINER_INTERNAL_API_KEY is required}
+      REGISTER_ON_START: "true"
+      REGISTRATION_INTERVAL_SECONDS: ${SIDECAR_REGISTRATION_INTERVAL_SECONDS:-10}
+    volumes:
+      - miner-certs:/var/lib/recall-miner/certs:ro
+    restart: unless-stopped
+
+  model-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        TARGET: ./cmd/model-proxy
+    depends_on:
+      miner:
+        condition: service_started
+      vllm:
+        condition: service_started
+    environment:
+      LISTEN_ADDR: ":9100"
+      SERVICE_NAME: gpu
+      SERVICE_PUBLIC_URL: http://model-proxy:9100
+      UPSTREAM_URL: http://vllm:8000
+      UPSTREAM_HEALTH_PATH: /health
+      MINER_API_URL: ${SIDECAR_MINER_API_URL:-http://miner:8001}
+      MINER_TLS_CA_FILE: ${MINER_TLS_CA_FILE:-}
+      INTERNAL_API_KEY: ${MINER_INTERNAL_API_KEY:?MINER_INTERNAL_API_KEY is required}
+      CAPABILITIES: embedding
+      MODELS: ${VLLM_MODEL:-BAAI/bge-small-en-v1.5}
+      METADATA: '{"gpu":true}'
+      REGISTER_ON_START: "true"
+      REGISTRATION_INTERVAL_SECONDS: ${SIDECAR_REGISTRATION_INTERVAL_SECONDS:-10}
+    volumes:
+      - miner-certs:/var/lib/recall-miner/certs:ro
+    restart: unless-stopped
+
+  miner-inference-service:
+    build:
+      context: .
+      dockerfile: Dockerfile.inference-service
+    environment:
+      LISTEN_ADDR: ":9200"
+      MODEL_DEVICE: ${MINER_MODEL_DEVICE:-cpu}
+      EMBED_MODEL: ${MINER_EMBED_MODEL:-BAAI/bge-small-en-v1.5}
+      RERANK_MODEL: ${MINER_RERANK_MODEL:-cross-encoder/ms-marco-MiniLM-L-2-v2}
+      EMBED_BATCH_SIZE: ${MINER_EMBED_BATCH_SIZE:-64}
+      RERANK_BATCH_SIZE: ${MINER_RERANK_BATCH_SIZE:-32}
+      GEN_MODEL: ${MINER_GEN_MODEL:-Qwen/Qwen2.5-0.5B-Instruct}
+      # Legacy and unsupported: when set, the service starts without generation
+      # (embedding/rerank only) and never sends a request to this URL.
+      GEN_OPENAI_URL: ${GEN_OPENAI_URL:-}
+      GEN_OPENAI_MODEL: ${MINER_GEN_MODEL:-Qwen/Qwen2.5-0.5B-Instruct}
+      GEN_OPENAI_TIMEOUT_SECONDS: ${GEN_OPENAI_TIMEOUT_SECONDS:-60}
+      GEN_MAX_INFLIGHT: ${GEN_MAX_INFLIGHT:-1}
+      GEN_MAX_QUEUE: ${GEN_MAX_QUEUE:-2}
+      GEN_ACQUIRE_TIMEOUT_SECONDS: ${GEN_ACQUIRE_TIMEOUT_SECONDS:-25}
+      HF_HOME: /models/huggingface
+    volumes:
+      - inference-model-cache:/models
+    restart: unless-stopped
+
+  cpu-model-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        TARGET: ./cmd/model-proxy
+    depends_on:
+      miner:
+        condition: service_started
+      miner-inference-service:
+        condition: service_started
+    environment:
+      LISTEN_ADDR: ":9201"
+      SERVICE_NAME: cpu
+      SERVICE_PUBLIC_URL: http://cpu-model-proxy:9201
+      UPSTREAM_URL: http://miner-inference-service:9200
+      UPSTREAM_HEALTH_PATH: /health
+      MINER_API_URL: ${SIDECAR_MINER_API_URL:-http://miner:8001}
+      MINER_TLS_CA_FILE: ${MINER_TLS_CA_FILE:-}
+      INTERNAL_API_KEY: ${MINER_INTERNAL_API_KEY:?MINER_INTERNAL_API_KEY is required}
+      # Generation is advertised only by the separate Chutes generation proxy.
+      CAPABILITIES: embedding,rerank
+      MODELS: ${MINER_EMBED_MODEL:-BAAI/bge-small-en-v1.5},${MINER_RERANK_MODEL:-cross-encoder/ms-marco-MiniLM-L-2-v2}
+      METADATA: '{"gpu":false}'
+      REGISTER_ON_START: "true"
+      REGISTRATION_INTERVAL_SECONDS: ${SIDECAR_REGISTRATION_INTERVAL_SECONDS:-10}
+    volumes:
+      - miner-certs:/var/lib/recall-miner/certs:ro
+    restart: unless-stopped
+
+  # Chutes generation (opt-in): docker compose --profile chutes up -d
+  # See docs/GENERATION_CHUTES.md. Without the profile neither service exists.
+  # Profile-only variables cannot use ${VAR:?}: Compose interpolates every service,
+  # so that would break the default stack. An unset key/state dir resolves to a
+  # path that does not exist (create_host_path: false, so the container never
+  # starts); an unset model or ledger id refuses generation at runtime.
+  chutes-generation:
+    profiles: ["chutes"]
+    build:
+      context: .
+      dockerfile: Dockerfile.inference-service
+    user: "1001:1001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs: ["/tmp:rw,nosuid,nodev,mode=1777"]
+    environment:
+      LISTEN_ADDR: ":19201"
+      GENERATION_CONNECTOR: chutes
+      GEN_CHUTES_ENABLED: "true"
+      CHUTES_MODEL: ${CHUTES_MODEL:-}
+      # The key is only ever read from this file; never set CHUTES_API_KEY.
+      CHUTES_API_KEY_FILE: /run/chutes/api-key
+      CHUTES_LEDGER_PATH: /state/hosted.sqlite
+      CHUTES_LEDGER_ID: ${CHUTES_LEDGER_ID:-}
+      # How many generation requests this miner sends to Chutes at once (1-16); match your Chutes plan.
+      CHUTES_MAX_CONCURRENT: ${CHUTES_MAX_CONCURRENT:-4}
+      PYTHONDONTWRITEBYTECODE: "1"
+    volumes:
+      - type: bind
+        source: ${CHUTES_KEY_DIR:-/nonexistent/CHUTES_KEY_DIR-unset}
+        target: /run/chutes
+        read_only: true
+        bind:
+          create_host_path: false
+      # Ledger storage. Default: the named volume chutes-state, created by Compose and owned by
+      # UID 1001 (from the image's /state). CHUTES_STATE_DIR=/absolute/path uses that host
+      # directory instead; it must be writable by UID 1001.
+      - ${CHUTES_STATE_DIR:-chutes-state}:/state
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:19201/health', timeout=2)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+  chutes-genproxy:
+    profiles: ["chutes"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        TARGET: ./cmd/model-proxy
+    depends_on:
+      miner:
+        condition: service_started
+      chutes-generation:
+        condition: service_started
+    user: "1001:1001"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      LISTEN_ADDR: ":9202"
+      SERVICE_NAME: chutes
+      SERVICE_PUBLIC_URL: http://chutes-genproxy:9202
+      UPSTREAM_URL: http://chutes-generation:19201
+      # Readiness, not liveness: the miner stops advertising generate while it is 503.
+      UPSTREAM_HEALTH_PATH: /health/generation
+      MINER_API_URL: ${SIDECAR_MINER_API_URL:-http://miner:8001}
+      MINER_TLS_CA_FILE: ${MINER_TLS_CA_FILE:-}
+      INTERNAL_API_KEY: ${MINER_INTERNAL_API_KEY:?MINER_INTERNAL_API_KEY is required}
+      CAPABILITIES: generate
+      MODELS: ${CHUTES_MODEL:-}
+      METADATA: '{"generation_connector":"chutes"}'
+      REGISTER_ON_START: "true"
+      REGISTRATION_INTERVAL_SECONDS: ${SIDECAR_REGISTRATION_INTERVAL_SECONDS:-10}
+      HEALTHCHECK_URL: http://127.0.0.1:9202/health
+    volumes:
+      - miner-certs:/var/lib/recall-miner/certs:ro
+    healthcheck:
+      test: ["CMD", "app", "--healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  qdrant-data:
+  vllm-cache:
+  miner-data:
+  miner-certs:
+  inference-model-cache:
+  chutes-state:

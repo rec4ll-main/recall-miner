@@ -1,0 +1,19 @@
+# Supported override: CPU-only miner.
+# Advertises T1 db (Qdrant + miner-db-service), T2 embedding and T3 rerank from the
+# bundled CPU inference service. No GPU services. Generation stays off.
+#
+# Use with the root file, always both:
+#   docker compose --env-file .env -f docker-compose.yml -f deploy/compose/cpu.yml <command>
+# Install guide: SETUP.md (it sets COMPOSE_FILE in .env so plain `docker compose` uses both).
+services:
+  # GPU services are moved behind a profile that is never enabled, so an
+  # unqualified `up` cannot start them on a CPU host.
+  vllm:
+    profiles: ["not-used-on-cpu"]
+  model-proxy:
+    profiles: ["not-used-on-cpu"]
+  cpu-model-proxy:
+    environment:
+      # Only what this profile serves; `generate` is not advertised.
+      CAPABILITIES: embedding,rerank
+      MODELS: ${MINER_EMBED_MODEL:-BAAI/bge-small-en-v1.5},${MINER_RERANK_MODEL:-cross-encoder/ms-marco-MiniLM-L-2-v2}

@@ -1,0 +1,47 @@
+{
+  "paraphrase_answerable": [
+    {
+      "query": "Who erected the Zephyrine Lighthouse on Kelvar Island, and when was it constructed?",
+      "answer": "Matilda Orsk erected the Zephyrine Lighthouse on Kelvar Island in 1873 [1].",
+      "contexts": [{"id": "light", "text": "The Zephyrine Lighthouse on Kelvar Island was built in 1873 by engineer Matilda Orsk."}],
+      "expect_abstained": false
+    },
+    {
+      "query": "At what time does the Kelvar Island ferry leave Port Ashby?",
+      "answer": "The Kelvar Island ferry leaves Port Ashby at 07:15 and 16:40 [1].",
+      "contexts": [{"id": "ferry", "text": "The Kelvar Island ferry departs from Port Ashby twice daily, at 07:15 and 16:40."}],
+      "expect_abstained": false
+    }
+  ],
+  "unsupported_numbers": [
+    {
+      "query": "Who built the Zephyrine Lighthouse and in what year?",
+      "answer": "The Zephyrine Lighthouse was built in 1901 by Matilda Orsk [1].",
+      "contexts": [{"id": "light", "text": "The Zephyrine Lighthouse on Kelvar Island was built in 1873 by engineer Matilda Orsk."}],
+      "expect_abstained": true,
+      "expect_reason": "unsupported_number"
+    }
+  ],
+  "negation": [
+    {
+      "query": "At what temperature does water freeze?",
+      "answer": "Water does not freeze at zero degrees Celsius [1].",
+      "contexts": [{"id": "water", "text": "Water freezes at zero degrees Celsius at standard pressure."}],
+      "expect_abstained": true,
+      "expect_reason": "negation_mismatch"
+    },
+    {
+      "query": "Does the Kelvar Island ferry run on Sundays?",
+      "answer": "Yes, the Kelvar Island ferry runs on Sundays [1].",
+      "contexts": [{"id": "sun", "text": "The Kelvar Island ferry does not run on Sundays."}],
+      "expect_abstained": true,
+      "expect_reason": "negation_mismatch"
+    }
+  ],
+  "miner_abstention_prose": [
+    "I cannot answer this from the provided context.",
+    "The context does not say.",
+    "Insufficient evidence in the retrieved chunks.",
+    "Unable to provide an answer based on the documents."
+  ]
+}

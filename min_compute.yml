@@ -1,0 +1,40 @@
+# Minimum and recommended compute for a Recall miner (Bittensor finney, netuid 31).
+# Human-readable version and install guide: SETUP.md, section 1.
+#
+# Two supported Compose profiles:
+#   CPU  docker-compose.yml + deploy/compose/cpu.yml  embedding and rerank run on CPU
+#   GPU  docker-compose.yml + deploy/compose/gpu.yml  embedding on one NVIDIA GPU (vLLM), rerank on CPU
+# Generation (T4) is optional and remote (Chutes); it needs no local GPU.
+
+version: '1.0'
+
+compute_spec:
+
+  miner:
+
+    cpu:
+      min_cores: 8                # vCPU, both profiles
+      recommended_cores: 16
+
+    gpu:
+      required: false             # the CPU profile needs none
+      min_count: 1                # GPU profile only: one NVIDIA GPU (driver + NVIDIA Container Toolkit)
+      recommended_count: 1
+
+    memory:
+      min_ram: 32                 # GB
+      recommended_ram: 64         # GB
+
+    storage:
+      min_space: 200              # GB, SSD
+      recommended_space: 500      # GB, NVMe
+      type: SSD
+
+    os:
+      name: Linux                 # 64-bit, Docker Engine with the Compose v2 plugin
+
+network_spec:
+  bandwidth:
+    # Estimate only, not measured: one inbound TCP port (default 6001) must be publicly reachable.
+    download: 100                 # Mbps
+    upload: 100                   # Mbps
