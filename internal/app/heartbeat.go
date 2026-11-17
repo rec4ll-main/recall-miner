@@ -112,7 +112,7 @@ func (s *server) signedPost(ctx context.Context, keypair signature.KeyringPair, 
 	}
 	request.Header.Del("Connection")
 
-	response, err := s.httpClient.Do(request)
+	response, err := s.recallAPI.Do(request)
 	if err != nil {
 		return err
 	}

@@ -26,6 +26,7 @@ type server struct {
 	cfg        config.Config
 	log        *slog.Logger
 	httpClient *http.Client
+	recallAPI  *recallAPIClient // registration and heartbeats only (recall_api_client.go)
 	heartbeats *heartbeat.Store
 	keypair    *signature.KeyringPair
 	handlers   *handlers.Handlers
@@ -88,6 +89,7 @@ func newServer(cfg config.Config, logger *slog.Logger) *server {
 		cfg:        cfg,
 		log:        logger,
 		httpClient: httpClient,
+		recallAPI:  newRecallAPIClient(recallAPITimeout),
 		heartbeats: heartbeats,
 		handlers:   handlers.New(cfg, logger, httpClient, apiClient, registry, heartbeats),
 		replays:    auth.NewReplayCache(15*time.Second, cfg.ReplayCacheMaxEntries),
