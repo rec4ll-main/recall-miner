@@ -27,6 +27,8 @@ These are deployment sizing guidelines, not an on-chain RAM check. Capacity depe
 
 ## Get started
 
+Only one miner hotkey per coldkey earns incentive on subnet 31: the most recently registered one. Register each miner from its own coldkey; see [registration](SETUP.md#2-wallet-and-chain-registration).
+
 [Install a miner](SETUP.md) covers registration, configuration, TLS, startup and verification. Deploy a published release tag and use the guide from that tag; `main` can include changes that have not been released.
 
 For repeatable deployments, use the [deployment checklist](setup-agents.md) alongside the install guide.

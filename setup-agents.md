@@ -19,7 +19,7 @@ Check available CPU, memory and disk against [the sizing guidance](SETUP.md#hard
 
 ## Install
 
-1. [Prepare the wallet](SETUP.md#2-wallet-and-chain-registration). Register the hotkey; the guide assumes it is already in `~/.bittensor/wallets` on the server.
+1. [Prepare the wallet](SETUP.md#2-wallet-and-chain-registration). Register the hotkey from a coldkey that has no other miner hotkey on subnet 31 (only the newest hotkey of a coldkey earns); the guide assumes it is already in `~/.bittensor/wallets` on the server.
 2. [Get the release](SETUP.md#3-get-the-code). Use the public release tag and its accompanying documentation.
 3. [Configure the miner](SETUP.md#4-configure-env). Generate a unique internal API key and select one Compose override. Keep production checks enabled.
 4. [Configure native TLS](SETUP.md#5-tls-and-the-public-endpoint). Publish only the miner port. A TLS-terminating proxy changes the key the Recall API expects.

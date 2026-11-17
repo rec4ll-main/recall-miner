@@ -109,6 +109,8 @@ Do not put a TLS-terminating proxy or CDN in front of the miner. It presents a d
 
 ## 2. Wallet and chain registration
 
+> **One hotkey per coldkey.** Subnet 31 scores one miner hotkey per coldkey. When a coldkey has several registered hotkeys, validators give weight only to the one registered most recently (on equal registration blocks, the lowest UID); the others earn nothing, even if they run and pass probes. Register each miner you run from its own coldkey.
+
 Create a hotkey for this miner in your wallet (the default `sr25519` key without a password; the miner reads the unencrypted hotkey seed) and register it on subnet 31. `<wallet>` and `<hotkey>` are the local wallet and hotkey **names**, the directory and file names under `~/.bittensor/wallets`, not addresses:
 
 ```bash
@@ -558,11 +560,12 @@ Give each miner its own checkout directory, and therefore its own `.env`, and ch
 | Checkout directory | `~/recall-miner` | `~/recall-miner-2` |
 | `COMPOSE_PROJECT_NAME` | `recall-miner` | `recall-miner-2` |
 | `MINER_HOST_PORT` and the port in `MINER_API_URL` | `6001` | `6002` |
+| Coldkey | its own | its own |
 | Hotkey (`MINER_HOTKEY_URI`) | its own | its own |
 | `MINER_INTERNAL_API_KEY` | its own | its own |
 | Chutes key, `CHUTES_KEY_DIR` | its own | its own |
 
-Clone the second checkout at the same release tag with `git clone --branch "$TAG" https://github.com/rec4ll-main/recall-miner.git ~/recall-miner-2`. Then repeat steps 4 to 8 there, and open its port. Never share volumes, ledgers, keys or hotkeys between miners.
+Clone the second checkout at the same release tag with `git clone --branch "$TAG" https://github.com/rec4ll-main/recall-miner.git ~/recall-miner-2`. Then repeat steps 4 to 8 there, and open its port. Never share volumes, ledgers, keys or hotkeys between miners. Each miner's hotkey must be registered from a different coldkey ([one hotkey per coldkey](#2-wallet-and-chain-registration)).
 
 ### Move to a new hotkey
 
