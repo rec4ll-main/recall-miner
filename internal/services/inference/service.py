@@ -83,8 +83,24 @@ from grounding import (  # noqa: F401  re-exported for existing callers and patc
     GROUNDING_KEYS,
 )
 
-from sentence_transformers import CrossEncoder, SentenceTransformer
-from transformers import AutoModelForCausalLM, AutoTokenizer
+import importlib
+
+
+def _load_on_first_use(module: str, name: str):
+    """Constructor for `module.name`, imported only when first called.
+
+    The ML stack (torch, sentence-transformers, transformers) adds about 400 MB of memory.
+    The Chutes sidecar runs this file too but never embeds or reranks locally, so it must
+    not pay for it. Tests replace these module attributes with fakes.
+    """
+    def construct(*args, **kwargs):
+        return getattr(importlib.import_module(module), name)(*args, **kwargs)
+    construct.__name__ = name
+    return construct
+
+
+SentenceTransformer = _load_on_first_use("sentence_transformers", "SentenceTransformer")
+CrossEncoder = _load_on_first_use("sentence_transformers", "CrossEncoder")
 
 
 EMBED_MODEL = os.getenv("EMBED_MODEL", "BAAI/bge-small-en-v1.5")
@@ -284,8 +300,8 @@ RERANK_BATCH_SIZE = int(os.getenv("RERANK_BATCH_SIZE", "32"))
 
 embedder: SentenceTransformer | None = None
 reranker: CrossEncoder | None = None
-generator: AutoModelForCausalLM | None = None
-gen_tokenizer: AutoTokenizer | None = None
+generator: object | None = None  # local generation is unsupported; kept for callers
+gen_tokenizer: object | None = None
 
 
 _GENERATE_IMPL = None
