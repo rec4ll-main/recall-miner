@@ -5,8 +5,10 @@ so a read overlapping another read was reported as a write in progress: a
 transient false not-ready / admission refusal on a healthy, empty ledger. Now reads
 share the gate, writes stay exclusive across commit and expectation publication,
 each connection's continuity check (which updates _rows_seen and may latch
-_broken) stays serialized, readiness never waits on an active or waiting write,
-and it waits at most READINESS_CHECK_WAIT_SECONDS for another connection's checks. These tests pause a
+_broken) stays serialized, and readiness waits at most READINESS_CHECK_WAIT_SECONDS
+in all, for an active or waiting write (which a waiting read never delays) or for
+another connection's checks. A write that finishes within that budget is waited
+out, so it no longer causes a false not-ready. These tests pause a
 real connection inside the lock with events, so they do not depend on timing.
 Disposable synthetic ledgers only; no provider, no live ledger.
 """
@@ -171,7 +173,7 @@ class ReadinessContentionTests(unittest.TestCase):
         self.assertTrue(self.ledger.available())
         self.ledger.begin()  # a write is not blocked by a leaked permit
 
-    def test_waiting_writer_refuses_readiness_without_check_wait(self):
+    def test_waiting_writer_bounds_the_readiness_wait(self):
         inside, release, _ = self._slow_check("_check_continuity", "slow-reader")
         first, written = [], []
         t1 = run("slow-reader", self.ledger.available, first)
@@ -183,42 +185,82 @@ class ReadinessContentionTests(unittest.TestCase):
                     break
             time.sleep(0.005)
         start = time.monotonic()
-        self.assertFalse(self.ledger.available())
-        self.assertLess(time.monotonic() - start, 0.1, "readiness waited although a writer is queued")
+        self.assertFalse(self.ledger.available())  # the queued write never got its turn in time
+        self.assertLess(time.monotonic() - start, self.ledger.READINESS_CHECK_WAIT_SECONDS + 0.5)
         release.set()
         t1.join(5)
         tw.join(5)
         self.assertEqual((first, len(written)), ([True], 1))
 
-    def _assert_write_overlap_refused_promptly(self, start_write, in_flight=()):
+    def _assert_stalled_write_refused_within_budget(self, start_write, in_flight=()):
         p = self.pause("writer", write=True)
         out = []
         t = run("writer", start_write, out)
         self.assertTrue(p.entered.wait(5))
         start = time.monotonic()
-        # Refused because a write is in progress, even where the committed state would
-        # otherwise be available (the caller's own attempt excluded via in_flight).
+        # Refused because a write is still in progress after the budget, even where the
+        # committed state would otherwise be available (own attempt excluded via in_flight).
         self.assertFalse(self.ledger.available(in_flight=in_flight))
-        self.assertLess(time.monotonic() - start, 0.5, "readiness waited on a write")
+        waited = time.monotonic() - start
+        budget = self.ledger.READINESS_CHECK_WAIT_SECONDS
+        self.assertGreaterEqual(waited, budget * 0.8, "readiness did not wait for the write")
+        self.assertLess(waited, budget + 0.5, "readiness waited past its budget")
         p.release.set()
         t.join(5)
         return out
 
-    def test_readiness_never_waits_on_begin(self):
-        out = self._assert_write_overlap_refused_promptly(self.ledger.begin)
+    def test_readiness_wait_on_a_stalled_begin_is_bounded(self):
+        out = self._assert_stalled_write_refused_within_budget(self.ledger.begin)
         (attempt,) = out
         self.assertIsInstance(attempt, str)
         self.assertEqual(self.ledger.pending(), [attempt])
         self.assertFalse(self.ledger.available())                    # the attempt holds admission
         self.assertTrue(self.ledger.available(in_flight={attempt}))  # its own running request excluded
 
-    def test_readiness_never_waits_on_complete(self):
+    def test_readiness_wait_on_a_stalled_complete_is_bounded(self):
         attempt = self.ledger.begin()
-        out = self._assert_write_overlap_refused_promptly(lambda: self.ledger.complete(attempt, usage=(1, 1)),
+        out = self._assert_stalled_write_refused_within_budget(lambda: self.ledger.complete(attempt, usage=(1, 1)),
                                                          in_flight={attempt})
         self.assertEqual(out, [None])
         self.assertEqual(self.ledger.pending(), [])
         self.assertTrue(self.ledger.available())
+
+    def test_readiness_waits_out_a_short_write(self):
+        # The UID-228 case: a heartbeat's readiness check lands on a request's ledger write.
+        # A write that ends within the budget is waited out and the committed state reported.
+        attempt = self.ledger.begin()
+        p = self.pause("writer", write=True)
+        out = []
+        t = run("writer", lambda: self.ledger.complete(attempt, usage=(1, 1)), out)
+        self.assertTrue(p.entered.wait(5))
+        threading.Timer(self.ledger.READINESS_CHECK_WAIT_SECONDS / 3, p.release.set).start()
+        start = time.monotonic()
+        self.assertTrue(self.ledger.available(in_flight={attempt}))
+        self.assertLess(time.monotonic() - start, self.ledger.READINESS_CHECK_WAIT_SECONDS + 0.2)
+        t.join(5)
+        self.assertEqual((out, self.ledger.pending()), ([None], []))
+
+    def test_waiting_readiness_does_not_delay_the_write(self):
+        reader = self.pause("open-reader")
+        read, written, waiting = [], [], []
+        tr = run("open-reader", self.ledger.available, read)
+        self.assertTrue(reader.entered.wait(5))
+        tw = run("writer", self.ledger.begin, written)
+        for _ in range(200):
+            with self.ledger._gate:
+                if self.ledger._writers_waiting:
+                    break
+            time.sleep(0.005)
+        tq = run("waiting-reader", self.ledger.available, waiting)
+        time.sleep(0.05)
+        with self.ledger._gate:
+            self.assertEqual(self.ledger._readers, 1, "a waiting readiness check took a read permit")
+        reader.release.set()
+        tr.join(5)
+        tw.join(5)  # the write runs as soon as the open read ends, ahead of the waiting check
+        tq.join(5)
+        self.assertEqual((read, len(written)), ([True], 1))
+        self.assertIn(waiting, ([True], [False]))
 
     def test_write_taking_the_lock_after_a_read_is_not_waited_on(self):
         reader = self.pause("first-reader")
@@ -235,7 +277,7 @@ class ReadinessContentionTests(unittest.TestCase):
         t1.join(5)
         # Whichever got the lock next, the waiting read must finish while the write is still paused.
         tr.join(3)
-        self.assertFalse(tr.is_alive(), "readiness waited for a write that took the lock")
+        self.assertFalse(tr.is_alive(), "readiness waited past its budget for a write that took the lock")
         self.assertIn(waiting, ([True], [False]))
         if writer.entered.is_set():
             self.assertEqual(written, [])  # it really was still in its transaction

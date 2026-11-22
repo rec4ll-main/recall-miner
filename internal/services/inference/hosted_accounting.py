@@ -28,12 +28,13 @@ Continuity checks and this process's expectations are serialized per ledger
 with the whole transaction, commit included. Expectations are published only
 after a commit returns. A failed or uncertain commit publishes nothing: the
 attempt stays held (pending) or, if the write did land, the mismatch refuses
-dispatch; neither releases nor replays anything. Readiness never waits on an
-in-flight or waiting write; it reports not ready instead. Reads may overlap one
+dispatch; neither releases nor replays anything. Readiness waits for an
+in-flight or waiting write only within READINESS_CHECK_WAIT_SECONDS (a waiting
+read never delays the write), then reports not ready. Reads may overlap one
 another (no write can run meanwhile); each connection's pin, identity and
 continuity checks, which update this process's expectations, stay serialized.
-Readiness waits at most READINESS_CHECK_WAIT_SECONDS for another connection's
-checks and then reports not ready; that budget covers lock waiting only, not this
+Readiness waits at most READINESS_CHECK_WAIT_SECONDS in all, for a write or for
+another connection's checks, and then reports not ready; that budget covers lock waiting only, not this
 process's own filesystem or SQLite I/O, which has no hard bound here.
 
 What holds admission is a pending attempt: one whose provider exchange may
@@ -368,10 +369,12 @@ class HostedLedger:
         self._readiness = threading.local()  # .deadline, set only inside available()
 
     @contextmanager
-    def _serialized(self, *, write=False, blocking=True):
+    def _serialized(self, *, write=False, blocking=True, wait_until=None):
         # A write is held across connect(), the body and the commit, exclusive of
         # every read, so no check ever sees an expectation whose transaction has not
-        # committed. Reads share the gate; blocking=False never waits on a write.
+        # committed. Reads share the gate; blocking=False never waits on a write, and
+        # wait_until (a time.monotonic() deadline) waits for it at most until then.
+        # A read that is still waiting holds no permit, so it never delays the write.
         with self._gate:
             if write:
                 self._writers_waiting += 1
@@ -381,9 +384,13 @@ class HostedLedger:
                     self._writers_waiting -= 1
                 self._writing = True
             else:
-                if not blocking and (self._writing or self._writers_waiting):
+                ready = lambda: not self._writing and not self._writers_waiting
+                if wait_until is not None:
+                    if not self._gate.wait_for(ready, timeout=max(0.0, wait_until - time.monotonic())):
+                        raise HostedAdmissionBlocked('hosted ledger write in progress')
+                elif not blocking and not ready():
                     raise HostedAdmissionBlocked('hosted ledger write in progress')
-                self._gate.wait_for(lambda: not self._writing and not self._writers_waiting)
+                self._gate.wait_for(ready)
                 self._readers += 1
         try:
             yield
@@ -578,9 +585,12 @@ class HostedLedger:
                 # process with every slot active reports not ready but the probe holds nothing
                 # while it reads. A slow read can therefore never delay or refuse a real begin().
                 self._release_slot(self._acquire_slot())
-            # A refusal here (including an expired check wait) releases the read
-            # permit on the way out of _serialized.
-            with self._serialized(blocking=False), self.connect() as conn:
+            # A ledger write takes milliseconds (begin, sent marker, terminal): readiness waits
+            # it out within the same deadline instead of reporting a false not-ready, which made
+            # the miner drop generation until the sidecar's next registration. The wait holds no
+            # permit, so it never delays the write. A refusal here (including an expired wait)
+            # releases the read permit on the way out of _serialized.
+            with self._serialized(wait_until=self._readiness.deadline), self.connect() as conn:
                 if self.expected_id is not None:
                     self._check_write_mode(conn)
                 where, args = self._counted_pending()
