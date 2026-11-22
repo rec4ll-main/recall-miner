@@ -543,6 +543,12 @@ def _generate_via_openai(messages: list, max_tokens: int, temperature, should_ab
             _raise_if_abort_or_timeout(should_abort, deadline)
         observe(trace, 'update', stage='send', dispatch_started=True)
         conn.request("POST", path, body=body, headers=request_headers)
+        # Once sent, a caller disconnect no longer stops this attempt: it is read to its end
+        # (or to the request deadline), so its outcome is recorded instead of left unknown.
+        # An abandoned attempt stays pending and counts toward the unresolved limit, which
+        # makes the sidecar report not ready; a dropped API connection or a restart of the Go
+        # miner must not cause that. Before the send a disconnect still sends nothing.
+        should_abort = None
         observe(trace, 'update', stage='headers')
         sock = conn.sock
         if sock is None:

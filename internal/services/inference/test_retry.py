@@ -224,10 +224,12 @@ class Retry(unittest.TestCase):
         self.assertEqual(retries, [])
         self.assertEqual(self.provider.bodies, [])
 
-    def test_client_abort_after_dispatch_is_not_retried(self):
+    def test_client_abort_after_dispatch_waits_for_the_attempt_and_is_not_retried(self):
+        # A sent attempt is no longer abandoned on a client abort: it runs to its own limit
+        # (here the stalled attempt's timeout); the gone client then gets no retry.
         self.reopen(5, ["hang", "ok"])
         (status, body), retries = self.handle(self.request(), abort=lambda: bool(self.provider.bodies))
-        self.assertEqual((status, body["error"]), (503, "generation_aborted"))
+        self.assertEqual((status, body["error"]), (504, "generation_backend_timeout"))
         self.assertEqual(retries, [])
         self.assertEqual(len(self.provider.bodies), 1)
 

@@ -1,15 +1,15 @@
-"""Cancellation/timeout propagation to the generation backend.
+"""Caller disconnect, timeout and failure behaviour of a dispatched generation attempt.
 
-API cancel -> miner ctx -> model-proxy -> this service's client socket closes.
-The service must then close its backend connection instead of reading a
-generation nobody wants.
+Before the request is sent, a caller disconnect (API -> miner ctx -> model-proxy ->
+this service's client socket) stops the request and nothing is sent. Once the
+request is sent it no longer does: the attempt is read to its end or to the
+request deadline, so its outcome is recorded instead of left unresolved (an unresolved
+attempt counts toward the hold limit and makes the sidecar report not ready).
 
 Ported to the supported Chutes path (GEN-001 legacy test ruling): each test runs
 with synthetic enabled Chutes admission (chutes_fixture) and the backend is a
-real loopback socket. What these tests observe is the local socket close and the
-ledger hold. They do NOT prove that the remote provider cancelled the work or
-stopped billing: a dispatched attempt stays pending (held), is never retried, and
-blocks the next admission until an operator resolves it.
+real loopback socket. A timed-out or failed dispatched attempt stays pending (held),
+is never retried, and blocks the next admission until it ages out or is resolved.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ sys.modules.setdefault("sentence_transformers", types.SimpleNamespace(CrossEncod
 sys.modules.setdefault("transformers", types.SimpleNamespace(AutoModelForCausalLM=object, AutoTokenizer=object))
 
 import service  # noqa: E402
-from chutes_fixture import CANONICAL_HOST, SyntheticChutes  # noqa: E402
+from chutes_fixture import CANONICAL_HOST, SyntheticChutes, completion  # noqa: E402
 from hosted_provider import ChutesConfig, HostedProviderError  # noqa: E402
 
 Q = [{"role": "user", "content": "q"}]
@@ -43,6 +43,61 @@ class HoldAssertions:
         self.assertEqual(backend.posts, 1, "backend saw a retry")
         self.assertEqual(len(chutes.pending()), 1, "dispatched attempt must stay held")
         self.assertFalse(chutes.admission_open(), "next admission must be blocked by the hold")
+
+
+    def assert_dispatched_once_and_resolved(self, chutes, backend):
+        self.assertEqual(chutes.requested, [(CANONICAL_HOST, None)])
+        self.assertEqual(len(chutes.connections), 1, "transport retried")
+        self.assertEqual(backend.posts, 1, "backend saw a retry")
+        self.assertEqual(chutes.pending(), [], "finished attempt must not stay held")
+        self.assertTrue(chutes.admission_open(), "a finished attempt must not block admission")
+
+
+class AnswerAfterBackend:
+    """Fake provider that answers a valid completion after ``delay`` seconds; records an
+    early client disconnect (which the sidecar must no longer cause once dispatched)."""
+
+    def __init__(self, delay: float, content: str = "The lighthouse was built in 1873 by Matilda Orsk."):
+        self.disconnected = threading.Event()
+        self.started = threading.Event()
+        self.answered = threading.Event()
+        self.posts = 0
+        outer = self
+
+        class H(BaseHTTPRequestHandler):
+            def do_POST(self):
+                self.rfile.read(int(self.headers["Content-Length"]))
+                outer.posts += 1
+                outer.started.set()
+                sock = self.connection
+                end = time.monotonic() + delay
+                while time.monotonic() < end:
+                    r, _, _ = select.select([sock], [], [], 0.02)
+                    if r:
+                        try:
+                            if sock.recv(1, socket.MSG_PEEK) == b"":
+                                outer.disconnected.set()
+                                return
+                        except OSError:
+                            outer.disconnected.set()
+                            return
+                body = json.dumps(completion(content)).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+                outer.answered.set()
+
+            def log_message(self, *a):
+                return
+
+        self.srv = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=self.srv.serve_forever, daemon=True).start()
+
+    def close(self):
+        self.srv.shutdown()
+        self.srv.server_close()
 
 
 class SlowBackend:
@@ -118,15 +173,29 @@ class BackendCancelTests(HoldAssertions, unittest.TestCase):
         self.addCleanup(self.backend.close)
         self.chutes = SyntheticChutes(self, self.backend.srv.server_address[1])
 
-    def test_abort_closes_backend_connection(self):
-        service.GEN_OPENAI_TIMEOUT = 10
-        t0 = time.monotonic()
+    def test_abort_after_dispatch_finishes_and_records(self):
+        backend = AnswerAfterBackend(0.8)
+        self.addCleanup(backend.close)
+        chutes = SyntheticChutes(self, backend.srv.server_address[1])
         flag = {"abort": False}
-        threading.Timer(0.3, lambda: flag.__setitem__("abort", True)).start()
-        with self.assertRaises(service.GenerationCanceled):
-            service.generate_via_openai(Q, 16, 0, should_abort=lambda: flag["abort"])
-        self.assertLess(time.monotonic() - t0, 2.0)
-        self.assertTrue(self.backend.disconnected.wait(2.0), "backend never saw the disconnect")
+        def arm():
+            self.assertTrue(backend.started.wait(3.0))
+            flag["abort"] = True
+        threading.Thread(target=arm, daemon=True).start()
+        answer, _, _ = service.generate_via_openai(Q, 16, 0, should_abort=lambda: flag["abort"])
+        self.assertTrue(flag["abort"], "abort was never raised during the attempt")
+        self.assertIn("1873", answer)
+        self.assertFalse(backend.disconnected.is_set(), "a dispatched attempt was abandoned")
+        self.assert_dispatched_once_and_resolved(chutes, backend)
+
+    def test_abort_after_dispatch_is_still_bounded_by_the_deadline(self):
+        service.GEN_OPENAI_TIMEOUT = 0.8
+        t0 = time.monotonic()
+        with self.assertRaises(TimeoutError):
+            service.generate_via_openai(Q, 16, 0, should_abort=lambda: self.backend.started.is_set())
+        self.assertGreater(time.monotonic() - t0, 0.6, "the abort, not the deadline, ended the attempt")
+        self.assertLess(time.monotonic() - t0, 2.5)
+        self.assertTrue(self.backend.disconnected.wait(2.0))
         self.assert_dispatched_once_and_held(self.chutes, self.backend)
 
     def test_backend_timeout_is_bounded_and_closes(self):
@@ -160,9 +229,11 @@ class BackendCancelTests(HoldAssertions, unittest.TestCase):
             service.generate_via_openai(Q, 16, 0)
         self.assertEqual((self.chutes.connections, self.backend.posts), ([], 0))
 
-    def test_http_client_disconnect_propagates_to_backend(self):
+    def test_http_client_disconnect_does_not_abandon_dispatched_attempt(self):
         """End to end through service.Handler: drop the /generate client socket mid-inference."""
-        service.GEN_OPENAI_TIMEOUT = 10
+        backend = AnswerAfterBackend(0.8)
+        self.addCleanup(backend.close)
+        chutes = SyntheticChutes(self, backend.srv.server_address[1])
         svc = ThreadingHTTPServer(("127.0.0.1", 0), service.Handler)
         threading.Thread(target=svc.serve_forever, daemon=True).start()
         service.set_generate_impl_for_tests(None)
@@ -174,30 +245,19 @@ class BackendCancelTests(HoldAssertions, unittest.TestCase):
             s = socket.create_connection(("127.0.0.1", svc.server_address[1]))
             s.sendall(b"POST /generate HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: "
                       + str(len(body)).encode() + b"\r\n\r\n" + body)
-            self.assertTrue(self.backend.started.wait(3.0), "backend call never started")
+            self.assertTrue(backend.started.wait(3.0), "backend call never started")
             s.close()  # client (miner/model-proxy) gives up
-            self.assertTrue(self.backend.disconnected.wait(3.0), "backend request was not cancelled")
+            self.assertTrue(backend.answered.wait(3.0), "dispatched attempt was abandoned")
+            self.assertFalse(backend.disconnected.is_set())
             end = time.monotonic() + 3
             while service._HOSTED_IN_FLIGHT and time.monotonic() < end:
                 time.sleep(0.02)
             self.assertEqual(service._HOSTED_IN_FLIGHT, set(), "handler never finished the attempt")
-            self.assert_dispatched_once_and_held(self.chutes, self.backend)
-            # The held attempt blocks the next request before any dispatch.
-            s2 = socket.create_connection(("127.0.0.1", svc.server_address[1]))
-            s2.sendall(b"POST /generate HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: "
-                       + str(len(body)).encode() + b"\r\n\r\n" + body)
-            s2.settimeout(3)
-            self.assertIn(b" 409 ", s2.recv(64))
-            s2.close()
-            self.assertEqual(self.backend.posts, 1)
+            self.assert_dispatched_once_and_resolved(chutes, backend)
         finally:
             service._rerank_scorer = old_scorer
             svc.shutdown()
             svc.server_close()
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class MidHeadersBackend:
@@ -296,9 +356,9 @@ class MidBodyBackend:
 
 
 class MidResponseCancelTests(HoldAssertions, unittest.TestCase):
-    def test_abort_during_headers_closes_backend(self):
+    def test_abort_during_headers_waits_for_the_deadline(self):
         backend = MidHeadersBackend()
-        chutes = SyntheticChutes(self, backend.srv.server_address[1], timeout=10)
+        chutes = SyntheticChutes(self, backend.srv.server_address[1], timeout=0.8)
         try:
             self.assertTrue(backend.started.wait(0) or True)
             flag = {"abort": False}
@@ -307,18 +367,19 @@ class MidResponseCancelTests(HoldAssertions, unittest.TestCase):
                 flag["abort"] = True
             threading.Thread(target=arm, daemon=True).start()
             t0 = time.monotonic()
-            with self.assertRaises(service.GenerationCanceled):
+            with self.assertRaises(TimeoutError):
                 service.generate_via_openai(Q, 16, 0,
                                             should_abort=lambda: flag["abort"])
+            self.assertGreater(time.monotonic() - t0, 0.6, "the abort, not the deadline, ended the attempt")
             self.assertLess(time.monotonic() - t0, 3.0)
-            self.assertTrue(backend.disconnected.wait(2.0), "backend never saw mid-headers disconnect")
+            self.assertTrue(backend.disconnected.wait(2.0), "backend never saw the deadline close")
             self.assert_dispatched_once_and_held(chutes, backend)
         finally:
             backend.close()
 
-    def test_abort_during_body_closes_backend(self):
+    def test_abort_during_body_waits_for_the_deadline(self):
         backend = MidBodyBackend(b'{"choices":[{"message":{"content":"partial')
-        chutes = SyntheticChutes(self, backend.srv.server_address[1], timeout=10)
+        chutes = SyntheticChutes(self, backend.srv.server_address[1], timeout=0.8)
         try:
             flag = {"abort": False}
             def arm():
@@ -327,11 +388,12 @@ class MidResponseCancelTests(HoldAssertions, unittest.TestCase):
                 flag["abort"] = True
             threading.Thread(target=arm, daemon=True).start()
             t0 = time.monotonic()
-            with self.assertRaises(service.GenerationCanceled):
+            with self.assertRaises(TimeoutError):
                 service.generate_via_openai(Q, 16, 0,
                                             should_abort=lambda: flag["abort"])
+            self.assertGreater(time.monotonic() - t0, 0.6, "the abort, not the deadline, ended the attempt")
             self.assertLess(time.monotonic() - t0, 3.0)
-            self.assertTrue(backend.disconnected.wait(2.0), "backend never saw mid-body disconnect")
+            self.assertTrue(backend.disconnected.wait(2.0), "backend never saw the deadline close")
             self.assert_dispatched_once_and_held(chutes, backend)
         finally:
             backend.close()

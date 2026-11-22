@@ -123,6 +123,8 @@ Every provider attempt is recorded before dispatch. If its outcome is unknown, i
 
 After a stalled or disconnected attempt, the sidecar may send one new attempt within the original deadline. The first attempt remains pending; both may incur provider charges. Provider HTTP errors, including `429`, are not retried. Requests refused before dispatch send nothing to Chutes.
 
+A caller that disconnects after an attempt is sent (a dropped API connection, or a restart of the miner process) does not stop that attempt. The sidecar reads the reply to the end, or until the request deadline, so the outcome is recorded instead of left unknown. A caller that disconnects before the send sends nothing.
+
 Up to two recent unknown outcomes permit new requests. A third blocks new requests until enough earlier attempts stop counting. The one permitted retry excludes its own stalled first attempt from that count. Each unknown attempt ages out of the admission count after five minutes, but its row remains in the ledger. Aging out does not establish whether the provider completed or billed it.
 
 Inspect the ledger through the service's own mount:
