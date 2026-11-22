@@ -158,13 +158,14 @@ class ChutesSidecarConcurrency(unittest.TestCase):
         self.assertEqual(out["limiter"], [4, 8])
         self.assertEqual(len(ignored(stderr)), 4)
 
-    def test_attempt_timeout_defaults_to_40_seconds_and_leaves_time_for_one_retry(self):
+    def test_attempt_timeout_defaults_to_25_seconds_and_leaves_time_for_one_retry(self):
         out, _ = run_service(self)
-        self.assertEqual(out["attempt_timeout"], 40.0)
+        self.assertEqual(out["attempt_timeout"], 25.0)
         self.assertEqual((out["error"], out["readiness"]), ("", [True, ""]))
-        # First attempt plus the post-dispatch retry minimum fit in the ~83 s sidecar budget.
-        self.assertLessEqual(service.GEN_ATTEMPT_TIMEOUT_DEFAULT + service.RETRY_POST_DISPATCH_MIN_SECONDS, 83)
-        for raw, want in (("", 40.0), ("  ", 40.0), ("25", 25.0)):
+        # First attempt plus the post-dispatch retry minimum fit in the ~56 s sidecar budget
+        # (58 s miner deadline minus the 2 s margin), inside the API's 60 s scoring window.
+        self.assertLessEqual(service.GEN_ATTEMPT_TIMEOUT_DEFAULT + service.RETRY_POST_DISPATCH_MIN_SECONDS, 56)
+        for raw, want in (("", 25.0), ("  ", 25.0), ("40", 40.0)):
             with self.subTest(raw=raw):
                 out, _ = run_service(self, {"GEN_ATTEMPT_TIMEOUT_SECONDS": raw})
                 self.assertEqual(out["attempt_timeout"], want)

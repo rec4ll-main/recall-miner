@@ -41,7 +41,7 @@ class ComposeGeneration(unittest.TestCase):
   self.assertEqual((env['GEN_MAX_INFLIGHT'],env['GEN_MAX_QUEUE'],env['GEN_ACQUIRE_TIMEOUT_SECONDS']),('1','2','25'))
   self.assertNotIn('CHUTES_MAX_CONCURRENT',env)
  def test_miner_generation_deadline_default(self):
-  self.assertEqual(self.render()['miner']['environment']['GENERATION_BACKEND_TIMEOUT_SECONDS'],'85')
+  self.assertEqual(self.render()['miner']['environment']['GENERATION_BACKEND_TIMEOUT_SECONDS'],'58')
   self.assertEqual(self.render(GENERATION_BACKEND_TIMEOUT_SECONDS='40')['miner']['environment']['GENERATION_BACKEND_TIMEOUT_SECONDS'],'40')
  def test_remote_backend_and_advertised_model_agree(self):
   services=self.render(GEN_OPENAI_URL='http://synthetic-backend.invalid:8000/v1',MINER_GEN_MODEL='synthetic-served-model',GEN_OPENAI_TIMEOUT_SECONDS='17')
@@ -126,7 +126,7 @@ class ChutesProfile(unittest.TestCase):
   self.assertEqual(self.render('chutes',CHUTES_MAX_CONCURRENT='9',**CHUTES_ENV)['chutes-generation']['environment']['CHUTES_MAX_CONCURRENT'],'9')
   for unset in ('HOSTED_MAX_OUTSTANDING','HOSTED_MAX_CONCURRENT','HOSTED_RECOVERY_POLICY','HOSTED_UNKNOWN_AGE_OUT_SECONDS',
                 'GEN_MAX_INFLIGHT','GEN_MAX_QUEUE','GEN_OPENAI_TIMEOUT_SECONDS','GEN_OPENAI_URL'):self.assertNotIn(unset,gen)
-  self.assertEqual(services['miner']['environment']['GENERATION_BACKEND_TIMEOUT_SECONDS'],'85')
+  self.assertEqual(services['miner']['environment']['GENERATION_BACKEND_TIMEOUT_SECONDS'],'58')
   self.assertEqual((proxy['CAPABILITIES'],proxy['MODELS']),('generate',CHUTES_ENV['CHUTES_MODEL']))
   self.assertEqual((proxy['SERVICE_NAME'],json.loads(proxy['METADATA'])),('chutes',{'generation_connector':'chutes'}))
   self.assertEqual(proxy['UPSTREAM_URL'],'http://chutes-generation:'+gen['LISTEN_ADDR'].lstrip(':'))

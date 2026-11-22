@@ -152,7 +152,7 @@ Compose sends the value to the miner, the sidecar and the generation proxy. They
 
 | Setting | Default | Reaches | Purpose |
 |---|---|---|---|
-| `GENERATION_BACKEND_TIMEOUT_SECONDS` | `85` | Miner | Generation deadline; keep within the API's 90-second wait |
+| `GENERATION_BACKEND_TIMEOUT_SECONDS` | `58` | Miner | Generation deadline; the default fits the API's 60-second scoring window |
 | `GENERATE_MAX_INFLIGHT` | `8` | Miner | Concurrent generation requests accepted |
 | `CHUTES_MAX_CONCURRENT` | `4` | Chutes service | Provider concurrency, allowed `1`–`16`; up to twice as many requests can wait |
 | `MINER_EMBED_BATCH_SIZE` | `64` | CPU inference | Embedding batch size |

@@ -162,9 +162,9 @@ class ComposeChutesSyntheticRender(unittest.TestCase):
 
     def test_deadline_wiring(self):
         s = self.services()
-        self.assertEqual(s["chutes-generation"]["environment"]["GEN_OPENAI_TIMEOUT_SECONDS"], "85")
+        self.assertEqual(s["chutes-generation"]["environment"]["GEN_OPENAI_TIMEOUT_SECONDS"], "58")
         miner = s["miner"]["environment"]
-        self.assertEqual(miner["GENERATION_BACKEND_TIMEOUT_SECONDS"], "85")
+        self.assertEqual(miner["GENERATION_BACKEND_TIMEOUT_SECONDS"], "58")
         self.assertEqual(miner["GENERATION_SIDECAR_DEADLINE_MARGIN_MS"], "2000")
 
     def test_no_key_material_rendered(self):

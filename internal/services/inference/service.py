@@ -124,14 +124,16 @@ def chat_completions_url(base: str) -> str:
         path += _CHAT_COMPLETIONS_PATH
     return urllib.parse.urlunsplit((parts.scheme, parts.netloc, path, parts.query, ""))
 GEN_OPENAI_MODEL = os.getenv("GEN_OPENAI_MODEL", "") or GEN_MODEL
-# Hosted provider budget. The default (85 s) is the miner's default generation deadline
+# Hosted provider budget. The default (58 s) is the miner's default generation deadline
 # (GENERATION_BACKEND_TIMEOUT_SECONDS), so min(this, deadline_ms) uses the miner's whole budget.
-GEN_OPENAI_TIMEOUT = float(os.getenv("GEN_OPENAI_TIMEOUT_SECONDS", "85"))
-# Per-attempt provider budget (default 40 s). A first attempt with no response by then is
+# Both fit the Recall API's 60 s scoring window: a later answer is not scored.
+GEN_OPENAI_TIMEOUT = float(os.getenv("GEN_OPENAI_TIMEOUT_SECONDS", "58"))
+# Per-attempt provider budget (default 25 s). A first attempt with no response by then is
 # abandoned (it stays pending) and one new attempt follows within the remaining request budget
-# (about 83 s in all), so a stalled provider request does not fail the whole request.
+# (about 56 s in all, so the retry gets about 31 s), so a stalled provider request does not
+# fail the whole request and the retry can still answer inside the scoring window.
 # The request deadline (deadline_ms, else GEN_OPENAI_TIMEOUT from admission) stays the hard cap.
-GEN_ATTEMPT_TIMEOUT_DEFAULT = 40.0
+GEN_ATTEMPT_TIMEOUT_DEFAULT = 25.0
 _ATTEMPT_TIMEOUT_ENV = os.getenv("GEN_ATTEMPT_TIMEOUT_SECONDS", "").strip()
 try:
     GEN_ATTEMPT_TIMEOUT = float(_ATTEMPT_TIMEOUT_ENV) if _ATTEMPT_TIMEOUT_ENV else GEN_ATTEMPT_TIMEOUT_DEFAULT
@@ -176,7 +178,7 @@ CHUTES_QUEUE_PER_REQUEST = 2
 CHUTES_MAX_CONCURRENT_INVALID = "CHUTES_MAX_CONCURRENT must be a whole number from 1 to %d" % MAX_CONCURRENT_LIMIT
 CHUTES_ACQUIRE_TIMEOUT_INVALID = "GEN_ACQUIRE_TIMEOUT_SECONDS must be a number of seconds"
 # The ledger's one brake mode (carried-unknown-aging-v1): an unknown outcome stops counting
-# after five minutes (the ledger minimum; a provider request ends within the ~83 s budget). That policy accepts only the retained outstanding bound two; admission is
+# after five minutes (the ledger minimum; a provider request ends within the ~56 s budget). That policy accepts only the retained outstanding bound two; admission is
 # then N active attempts plus at most hosted_accounting.MAX_CARRIED_UNKNOWN carried unknowns.
 CHUTES_UNKNOWN_AGE_OUT_SECONDS = 300
 CHUTES_LEDGER_BOUND = 2

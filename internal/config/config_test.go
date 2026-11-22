@@ -44,8 +44,8 @@ func TestEnvBool_Garbage_Fallback(t *testing.T) {
 func TestGenerationBackendTimeout_Unset_Default(t *testing.T) {
 	os.Unsetenv("GENERATION_BACKEND_TIMEOUT_SECONDS")
 	cfg := FromEnv()
-	if cfg.GenerationBackendTimeout != 85*time.Second {
-		t.Fatalf("expected 85s default, got %v", cfg.GenerationBackendTimeout)
+	if cfg.GenerationBackendTimeout != 58*time.Second {
+		t.Fatalf("expected 58s default, got %v", cfg.GenerationBackendTimeout)
 	}
 }
 

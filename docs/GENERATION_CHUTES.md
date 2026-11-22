@@ -101,11 +101,11 @@ A complete provider HTTP error other than `408` is recorded as terminal. It fail
 
 ## Deadlines (how a slow completion surfaces)
 
-The default miner budget is 85 seconds (`GENERATION_BACKEND_TIMEOUT_SECONDS`). It forwards the remaining budget minus a 2-second margin to the sidecar. The sidecar uses the smaller of that budget and its own 85-second limit (`GEN_OPENAI_TIMEOUT_SECONDS`). A normal request therefore has about 83 seconds for hosted generation, including queueing and retries.
+The default miner budget is 58 seconds (`GENERATION_BACKEND_TIMEOUT_SECONDS`). It forwards the remaining budget minus a 2-second margin to the sidecar. The sidecar uses the smaller of that budget and its own 58-second limit (`GEN_OPENAI_TIMEOUT_SECONDS`). A normal request therefore has about 56 seconds for hosted generation, including queueing and retries.
 
-The Recall API waits up to 90 seconds for generation; its scoring deadline is 60 seconds. A response may reach a customer successfully after the scoring deadline. Keep the miner budget within the API's wait.
+The Recall API scores a generation answer only if it arrives within 60 seconds (it waits up to 90). The 58-second default keeps every answer, including one from a retry, inside that window with 2 seconds for the network. Raising it lets slow answers through to customers, but answers after 60 seconds earn nothing on probes.
 
-The first provider attempt has a 40-second limit. A stalled or disconnected attempt can be followed by one new attempt when at least 15 seconds remain. Both attempts share the original request deadline. Requests are not streamed and use the provider's default output limit; a slow model can exhaust the budget without returning headers.
+The first provider attempt has a 25-second limit. A stalled or disconnected attempt can be followed by one new attempt when at least 15 seconds remain. Both attempts share the original request deadline. Requests are not streamed and use the provider's default output limit; a slow model can exhaust the budget without returning headers.
 
 The stock Compose profile does not forward `GEN_OPENAI_TIMEOUT_SECONDS`, `GEN_ATTEMPT_TIMEOUT_SECONDS` or `GEN_ACQUIRE_TIMEOUT_SECONDS` to `chutes-generation`. Changing them requires an explicit Compose override; adding them to `.env` alone does not tune hosted generation.
 

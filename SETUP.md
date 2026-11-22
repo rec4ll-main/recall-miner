@@ -381,7 +381,7 @@ except urllib.error.HTTPError as e:
 Expected:
 
 ```
-200 {"status":"ok","reason":"","connector":"chutes","model":"Qwen/Qwen3.8-27B-TEE","hosted_deadline_seconds":85.0}
+200 {"status":"ok","reason":"","connector":"chutes","model":"Qwen/Qwen3.8-27B-TEE","hosted_deadline_seconds":58.0}
 ```
 
 If you see `Connection refused`, the sidecar is still starting: wait 10 seconds and run it again. A `503` names the reason; see [Troubleshooting](#12-troubleshooting). When it is `200`:
@@ -586,7 +586,7 @@ The steps above need no tuning. [docs/ENVIRONMENT.md, Advanced settings](docs/EN
 
 - `CHUTES_MODEL`: the Chutes model used for generation. Set it in `.env` to another exact model ID and run `docker compose up -d`; Compose passes it to the miner, the sidecar and the generation proxy together.
 - `CHUTES_MAX_CONCURRENT` (default `4`, `1`-`16`): how many generation requests your miner sends to Chutes at once; match it to your Chutes plan. Set it in `.env` and run `docker compose up -d`.
-- `GENERATION_BACKEND_TIMEOUT_SECONDS` (default `85`) and `GENERATE_MAX_INFLIGHT` (default `8`): the miner's generation deadline and how many generation requests it accepts at once. Raise `GENERATE_MAX_INFLIGHT` if you set `CHUTES_MAX_CONCURRENT` above `8`.
+- `GENERATION_BACKEND_TIMEOUT_SECONDS` (default `58`, which fits the API's 60-second scoring window) and `GENERATE_MAX_INFLIGHT` (default `8`): the miner's generation deadline and how many generation requests it accepts at once. Raise `GENERATE_MAX_INFLIGHT` if you set `CHUTES_MAX_CONCURRENT` above `8`.
 - Batch sizes, vLLM memory and context length, heartbeat intervals, and the miner's overload controls (`RATE_LIMIT_*`, `*_MAX_INFLIGHT`).
 
 ## 12. Troubleshooting

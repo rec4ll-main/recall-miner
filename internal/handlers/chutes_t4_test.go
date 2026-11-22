@@ -80,7 +80,7 @@ func TestProductionDefaultsAndExactRegistrationRoute(t *testing.T) {
 	t.Setenv("GENERATION_SIDECAR_DEADLINE_MARGIN_MS", "")
 	cfg := config.FromEnv()
 	if cfg.GenerationBackendName != "chutes" || cfg.GenerationModel != productionModel ||
-		cfg.GenerationBackendTimeout != 85*time.Second || cfg.GenerationSidecarMargin != 2*time.Second || cfg.GenerationEnabled {
+		cfg.GenerationBackendTimeout != 58*time.Second || cfg.GenerationSidecarMargin != 2*time.Second || cfg.GenerationEnabled {
 		t.Fatalf("unexpected defaults %q %q %v %v %v", cfg.GenerationBackendName, cfg.GenerationModel,
 			cfg.GenerationBackendTimeout, cfg.GenerationSidecarMargin, cfg.GenerationEnabled)
 	}
@@ -105,10 +105,10 @@ func TestProductionDefaultsAndExactRegistrationRoute(t *testing.T) {
 	if sent["model"] != productionModel {
 		t.Fatalf("sidecar model %v", sent["model"])
 	}
-	// Go's 85s deadline minus the 2s margin, measured a few ms after the context began.
+	// Go's 58s deadline minus the 2s margin, measured a few ms after the context began.
 	ms, _ := sent["deadline_ms"].(float64)
-	if ms <= 82000 || ms > 83000 {
-		t.Fatalf("deadline_ms %v not inside (82000, 83000]", sent["deadline_ms"])
+	if ms <= 55000 || ms > 56000 {
+		t.Fatalf("deadline_ms %v not inside (55000, 56000]", sent["deadline_ms"])
 	}
 }
 

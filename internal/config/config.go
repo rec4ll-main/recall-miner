@@ -32,7 +32,7 @@ type Config struct {
 	GenerationEnabled          bool   // env GENERATION_ENABLED, default false
 	GenerationBackendName      string // explicit Chutes sidecar; no first-healthy fallback
 	GenerationModel            string
-	GenerationBackendTimeout   time.Duration // env GENERATION_BACKEND_TIMEOUT_SECONDS, default 85s
+	GenerationBackendTimeout   time.Duration // env GENERATION_BACKEND_TIMEOUT_SECONDS, default 58s (fits the API's 60 s scoring window)
 	GenerationSidecarMargin    time.Duration // env GENERATION_SIDECAR_DEADLINE_MARGIN_MS, default 2000ms; sidecar budget = remaining - margin
 	ValidatorAllowlistDevEmpty bool          // env VALIDATOR_ALLOWLIST_DEV_EMPTY, default false
 	EpistulaEnvelopeRequired   bool          // env EPISTULA_ENVELOPE_REQUIRED, default true
@@ -122,7 +122,7 @@ func FromEnv() Config {
 		GenerationEnabled:          EnvBool("GENERATION_ENABLED", false),
 		GenerationBackendName:      Env("CHUTES_BACKEND_NAME", "chutes"),
 		GenerationModel:            Env("CHUTES_MODEL", "Qwen/Qwen3.8-27B-TEE"),
-		GenerationBackendTimeout:   time.Duration(EnvInt("GENERATION_BACKEND_TIMEOUT_SECONDS", 85)) * time.Second,
+		GenerationBackendTimeout:   time.Duration(EnvInt("GENERATION_BACKEND_TIMEOUT_SECONDS", 58)) * time.Second,
 		GenerationSidecarMargin:    time.Duration(EnvInt("GENERATION_SIDECAR_DEADLINE_MARGIN_MS", 2000)) * time.Millisecond,
 		ValidatorAllowlistDevEmpty: EnvBool("VALIDATOR_ALLOWLIST_DEV_EMPTY", false),
 		EpistulaEnvelopeRequired:   EnvBool("EPISTULA_ENVELOPE_REQUIRED", true),
